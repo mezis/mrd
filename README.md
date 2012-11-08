@@ -1,24 +1,34 @@
-# Mrd
+# mrd
 
-TODO: Write a gem description
+> Stands for MySQL RAM Disk
+
+Spawns a temporary MySQL instance off a RAM disk. Useful to speed up large test suites, your machine usable while running them, and preserve your SSD's life!
+
+Only works under Mac OS X.
 
 ## Installation
-
-Add this line to your application's Gemfile:
-
-    gem 'mrd'
-
-And then execute:
-
-    $ bundle
-
-Or install it yourself as:
 
     $ gem install mrd
 
 ## Usage
 
-TODO: Write usage instructions here
+  $ mrd
+  ==>
+  Created Ramdisk at /dev/disk4
+  Formatted Ramdisk at /dev/disk4
+  Mounted Ramdisk at /Volumes/MySQLRAMDisk
+  Starting MySQL server
+  MySQL is now running.
+  Configure you client to use the root user, no password, and the socket at '/Volumes/MySQLRAMDisk/mysql.sock'.
+  Just close this terminal or press ^C when you no longer need it.
+
+Then, if using Rails, point your `database.yml` to the temporary SQL server:
+  
+  test:
+    ...
+    socket: /Volumes/MySQLRAMDisk/mysql.sock
+
+
 
 ## Contributing
 

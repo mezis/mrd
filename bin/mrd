@@ -1,0 +1,259 @@
+#!/usr/bin/env ruby
+
+require 'logger'
+require 'pathname'
+
+require 'rubygems'
+require 'term/ansicolor'
+
+class App
+  class ColorLogger < ::Logger
+    Colors = {
+      'DEBUG'   => :reset,
+      'INFO'    => :green,
+      'WARN'    => :yellow,
+      'ERROR'   => :red,
+      'FATAL'   => :red,
+      'UNKNOWN' => :red
+    }
+    
+    def initialize(*args)
+      super
+      self.formatter = self.method(:custom_formatter)
+    end
+
+    def custom_formatter(severity, time, progname, msg)
+      Term::ANSIColor.send(Colors[severity], "#{msg}\n")
+    end
+  end
+
+
+  Logger = ColorLogger.new(STDOUT).tap do |logger|
+    logger.level = ColorLogger::INFO
+  end
+
+
+  module Runner
+    CommandError = Class.new(Exception)
+
+    def run(command)
+      Logger.debug("Running '#{command}'")
+      return %x(#{command}).strip
+    end
+
+    def run!(command)
+      run(command).tap do |result|
+        raise CommandError.new($?) if $? != 0
+      end
+    end
+  end
+
+
+  class Ramdisk
+    include Runner
+
+    def initialize(size_in_megabytes)
+      @size_in_megabytes = size_in_megabytes
+      @mountpoint = nil
+      @device = nil
+    end
+
+    def mount
+      @device = run!("hdid -nomount ram://#{sectors}")
+      Logger.info("Created Ramdisk at #{@device}")
+
+      run!("diskutil erasevolume HFS+ MySQLRAMDisk #{@device}")
+      Logger.info("Formatted Ramdisk at #{@device}")
+      Logger.info("Mounted Ramdisk at #{mountpoint}")
+      self
+    rescue Exception => e
+      Logger.error("Mounting failed: #{e.class.name} #{e.message}")
+      unmount
+    end
+
+    def unmount
+      return unless @device
+      Logger.info 'Ejecting RAM disk'
+      run!("hdiutil eject #{@device}")
+      @mountpoint = nil
+      self
+    rescue CommandError
+      run("hdiutil eject -force #{@device}")
+      self
+    end
+
+
+    def mountpoint
+      @mountpoint ||= begin
+        mounts = run!("mount")
+        mounts =~ /#{@device} on (.*) \(/
+        $1 or raise RuntimeError.new("Cannot determine mountpoint")
+        Pathname.new($1)
+      end
+    end
+
+    private
+
+    def sectors
+      @size_in_megabytes * 1024*1024/512
+    end
+  end
+
+
+  class MySQLServer
+    include Runner
+
+    attr :socket
+
+    def initialize(ramdisk)
+      @ramdisk = ramdisk
+      @socket  = @ramdisk.mountpoint.join('mysql.sock')
+      @pidfile = @ramdisk.mountpoint.join('mysql.pid')
+      @config  = @ramdisk.mountpoint.join('my.cnf')
+
+      @install_db = find_command! %w(mysql_install_db5 mysql_install_db)
+      @mysqld     = find_command! %w(mysqld_safe5 mysqld_safe)
+    end
+
+    def start
+      # Setup config
+      File.open(@config, 'w') do |fd|
+        fd.write %Q{
+          [client]
+          socket = #{@socket}
+          [mysqld]
+          socket = #{@socket}
+          thread_concurrency = 4
+          # innodb_data_home_dir = 
+          innodb_data_file_path = ibdata1:10M:autoextend
+          #innodb_log_group_home_dir = /opt/local/var/db/mysql5
+          innodb_file_per_table
+          ft_min_word_len = 3
+        }.gsub(/^\s+/,'')
+      end
+
+      # Setup base databases
+      run!("#{@install_db} --datadir='#{@ramdisk.mountpoint}'")
+
+      # Start server in another thread
+      Logger.info 'Starting MySQL server'
+      @thread = Thread.new do 
+        run!("#{@mysqld} --defaults-file='#{@config}' --socket='#{@socket}' --datadir='#{@ramdisk.mountpoint}' --pid-file='#{@pidfile}' --skip-networking")
+      end
+
+      # Wait for PID file
+      wait_for { Logger.debug "Waiting for PID file..." ; @pidfile.exist? }
+      self
+    end
+
+    def stop
+      return unless @pidfile
+      # Terminate server
+      Logger.info "Stopping server..."
+      pid = @pidfile.read.to_i
+      Process.kill("TERM", pid)
+      Logger.debug "Killed server process (#{pid})."
+      wait_for { Logger.debug "Waiting for PID file..." ; !@pidfile.exist? }
+    end
+
+    private
+
+    def wait_for(options = {})
+      tries = options.fetch(:tries, 10)
+      delay = options.fetch(:delay, 1.0)
+      1.upto(tries) do |index|
+        break if yield
+        Kernel.sleep(delay)
+      end
+      yield
+    end
+
+    def find_command!(variants)
+      variants.each do |variant|
+        path = run("which #{variant}")
+        return path unless path.empty?
+      end
+      Logger.error "Sorry, I need one of #{variants.join ', '} to run."
+      Kernel.exit
+    end
+  end
+
+
+  def initialize(argv)
+    @options = OpenStruct.new(:verbose => false, :size => 1024)
+    option_parser.parse(argv)
+
+    Logger.level = options.verbose ? 
+      ColorLogger::DEBUG :
+      ColorLogger::INFO
+  end
+
+
+  def main
+    if pid = Process.fork
+      parent_main(pid)
+    else
+      child_main
+    end
+  end
+
+  def parent_main(child_pid)
+    # Logger.info 'in parent'
+    Process.detach(child_pid)
+    wait_forever
+  rescue Interrupt
+    Kernel.exit
+  end
+
+  def child_main
+  # Logger.info 'in child'
+    @ramdisk = Ramdisk.new(options.size).mount
+    @server = MySQLServer.new(@ramdisk).start
+    Signal.trap("HUP") do 
+      Logger.warn "SIGHUP received"
+      cleanup
+    end
+
+    # Log and wait for user input
+    Logger.info "MySQL is now running."
+    Logger.info "Configure you client to use the root user, no password, and the socket at '#{@server.socket}'."
+    Logger.info "Just close this terminal or press ^C when you no longer need it."
+    wait_forever
+
+  rescue Interrupt, SystemExit
+    Logger.warn 'Session terminated.'
+  ensure
+    cleanup
+  end
+
+  def cleanup
+    @server.stop     if @server
+    @ramdisk.unmount if @ramdisk
+  end    
+
+
+  private
+
+  attr :options
+
+  def option_parser
+    OptionParser.new do |opts|
+      opts.banner = "Usage: #{$progname} [options]"
+
+      opts.on("-v", "--verbose", "Run verbosely") do |v|
+        options.verbose = true
+      end
+
+      opts.on("-s", "--size SIZE", Integer, "Size of RAM disk in MB (default 1024)") do |v|
+        options.size = v
+      end
+    end
+  end 
+
+  def wait_forever
+    Kernel.sleep 1_000_000
+  end
+end
+
+
+App.new(ARGV).main
