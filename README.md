@@ -12,15 +12,15 @@ Only works under Mac OS X.
 
 ## Usage
 
-  $ mrd
-  ==>
-  Created Ramdisk at /dev/disk4
-  Formatted Ramdisk at /dev/disk4
-  Mounted Ramdisk at /Volumes/MySQLRAMDisk
-  Starting MySQL server
-  MySQL is now running.
-  Configure you client to use the root user, no password, and the socket at '/Volumes/MySQLRAMDisk/mysql.sock'.
-  Just close this terminal or press ^C when you no longer need it.
+    $ mrd
+    ==>
+    Created Ramdisk at /dev/disk4
+    Formatted Ramdisk at /dev/disk4
+    Mounted Ramdisk at /Volumes/MySQLRAMDisk
+    Starting MySQL server
+    MySQL is now running.
+    Configure you client to use the root user, no password, and the socket at '/Volumes/MySQLRAMDisk/mysql.sock'.
+    Just close this terminal or press ^C when you no longer need it.
 
 Then, if using Rails, point your `database.yml` to the temporary SQL server:
   
@@ -28,6 +28,12 @@ Then, if using Rails, point your `database.yml` to the temporary SQL server:
     ...
     socket: /Volumes/MySQLRAMDisk/mysql.sock
 
+## Options
+
+    $ mrd -h
+    Usage:  [options]
+        -v, --verbose                    Run verbosely
+        -s, --size SIZE                  Size of RAM disk in MB (default 1024)
 
 
 ## Contributing
