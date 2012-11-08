@@ -90,6 +90,7 @@ class App
         mounts = run!("mount")
         mounts =~ /#{@device} on (.*) \(/
         $1 or raise RuntimeError.new("Cannot determine mountpoint")
+        $1 != '/' or raise RuntimeError.new("Bad mountpoint '#{$1}' for #{@device}")
         Pathname.new($1)
       end
     end
@@ -109,30 +110,27 @@ class App
 
     def initialize(ramdisk)
       @ramdisk = ramdisk
-      @socket  = @ramdisk.mountpoint.join('mysql.sock')
-      @pidfile = @ramdisk.mountpoint.join('mysql.pid')
-      @config  = @ramdisk.mountpoint.join('my.cnf')
-
       @install_db = find_command! %w(mysql_install_db5 mysql_install_db)
       @mysqld     = find_command! %w(mysqld_safe5 mysqld_safe)
     end
 
     def start
       # Setup config
-      File.open(@config, 'w') do |fd|
+      File.open(configfile, 'w') do |fd|
         fd.write %Q{
           [client]
-          socket = #{@socket}
+          socket = #{socket}
           [mysqld]
-          socket = #{@socket}
+          socket = #{socket}
           thread_concurrency = 4
-          # innodb_data_home_dir = 
           innodb_data_file_path = ibdata1:10M:autoextend
-          #innodb_log_group_home_dir = /opt/local/var/db/mysql5
           innodb_file_per_table
           ft_min_word_len = 3
         }.gsub(/^\s+/,'')
       end
+
+      # Switch to the MySQL install directory (on some platforms the install script uses relative paths)
+      Dir.chdir @install_db.parent.parent
 
       # Setup base databases
       run!("#{@install_db} --datadir='#{@ramdisk.mountpoint}'")
@@ -140,22 +138,26 @@ class App
       # Start server in another thread
       Logger.info 'Starting MySQL server'
       @thread = Thread.new do 
-        run!("#{@mysqld} --defaults-file='#{@config}' --socket='#{@socket}' --datadir='#{@ramdisk.mountpoint}' --pid-file='#{@pidfile}' --skip-networking")
+        run!("#{@mysqld} --defaults-file='#{configfile}' --socket='#{socket}' --datadir='#{@ramdisk.mountpoint}' --pid-file='#{pidfile}' --skip-networking")
       end
 
       # Wait for PID file
-      wait_for { Logger.debug "Waiting for PID file..." ; @pidfile.exist? }
+      wait_for { Logger.debug "Waiting for PID file..." ; pidfile.exist? }
       self
     end
 
     def stop
-      return unless @pidfile
+      return unless pidfile && pidfile.exist?
       # Terminate server
       Logger.info "Stopping server..."
-      pid = @pidfile.read.to_i
+      pid = pidfile.read.to_i
       Process.kill("TERM", pid)
       Logger.debug "Killed server process (#{pid})."
-      wait_for { Logger.debug "Waiting for PID file..." ; !@pidfile.exist? }
+      wait_for { Logger.debug "Waiting for PID file..." ; !pidfile.exist? }
+    end
+
+    def socket
+      @ramdisk && @ramdisk.mountpoint.join('mysql.sock')
     end
 
     private
@@ -173,11 +175,21 @@ class App
     def find_command!(variants)
       variants.each do |variant|
         path = run("which #{variant}")
-        return path unless path.empty?
+        return Pathname.new(path) unless path.empty?
       end
       Logger.error "Sorry, I need one of #{variants.join ', '} to run."
       Kernel.exit
     end
+
+    def pidfile
+      @ramdisk && @ramdisk.mountpoint.join('mysql.pid')
+    end
+
+    def configfile
+      @ramdisk && @ramdisk.mountpoint.join('my.cnf')
+    end
+
+
   end
 
 
@@ -192,9 +204,17 @@ class App
 
 
   def main
+    @ramdisk = Ramdisk.new(options.size)
+    @server = MySQLServer.new(@ramdisk)
+    rd,wr = IO.pipe
+
     if pid = Process.fork
+      wr.close
+      @pipe = rd
       parent_main(pid)
     else
+      rd.close
+      @pipe = wr
       child_main
     end
   end
@@ -204,13 +224,15 @@ class App
     Process.detach(child_pid)
     wait_forever
   rescue Interrupt
-    Kernel.exit
+    # Kernel.exit
+    Logger.debug 'Waiting for child to complete...'    
+    @pipe.gets
   end
 
   def child_main
   # Logger.info 'in child'
-    @ramdisk = Ramdisk.new(options.size).mount
-    @server = MySQLServer.new(@ramdisk).start
+    @ramdisk.mount
+    @server.start
     Signal.trap("HUP") do 
       Logger.warn "SIGHUP received"
       cleanup
@@ -228,15 +250,16 @@ class App
     cleanup
   end
 
+  private
+
+
+  attr :options
+
   def cleanup
     @server.stop     if @server
     @ramdisk.unmount if @ramdisk
   end    
 
-
-  private
-
-  attr :options
 
   def option_parser
     OptionParser.new do |opts|
