@@ -2,6 +2,8 @@
 
 require 'logger'
 require 'pathname'
+require 'ostruct'
+require 'optparse'
 
 require 'rubygems'
 require 'term/ansicolor'
