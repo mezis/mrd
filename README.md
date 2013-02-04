@@ -24,9 +24,9 @@ Only works under Mac OS X.
 
 Then, if using Rails, point your `database.yml` to the temporary SQL server:
   
-  test:
-    ...
-    socket: /Volumes/MySQLRAMDisk/mysql.sock
+    test:
+      ...
+      socket: /Volumes/MySQLRAMDisk/mysql.sock
 
 ## Options
 
