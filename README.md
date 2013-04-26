@@ -1,6 +1,9 @@
 # mrd
 
-> Stands for MySQL RAM Disk
+[![Gem Version](https://badge.fury.io/rb/mrd.png)](http://badge.fury.io/rb/mrd)
+
+
+> Stands for MySQL RAM Disk. Pronounced like the French swear word.
 
 Spawns a temporary MySQL instance off a RAM disk. Useful to speed up large test suites, your machine usable while running them, and preserve your SSD's life!
 
