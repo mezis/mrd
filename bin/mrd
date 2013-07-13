@@ -175,7 +175,7 @@ class App
     def find_command!(variants)
       variants.each do |variant|
         path = run("which #{variant}")
-        return Pathname.new(path) unless path.empty?
+        return Pathname.new(path).realpath unless path.empty?
       end
       Logger.error "Sorry, I need one of #{variants.join ', '} to run."
       Kernel.exit

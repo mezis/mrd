@@ -1,0 +1,20 @@
+PATH
+  remote: .
+  specs:
+    mrd (0.0.4)
+      term-ansicolor
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    rake (10.1.0)
+    term-ansicolor (1.2.2)
+      tins (~> 0.8)
+    tins (0.8.3)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  mrd!
+  rake
