@@ -108,10 +108,11 @@ class App
 
     attr :socket
 
-    def initialize(ramdisk)
+    def initialize(ramdisk, log = false)
       @ramdisk = ramdisk
       @install_db = find_command! %w(mysql_install_db5 mysql_install_db)
       @mysqld     = find_command! %w(mysqld_safe5 mysqld_safe)
+      @log        = log
     end
 
     def start
@@ -127,6 +128,13 @@ class App
           innodb_file_per_table
           ft_min_word_len = 3
         }.gsub(/^\s+/,'')
+        if @log
+          fd.write %Q{
+            log_output = FILE
+            general_log = 1
+            general_log_file = "#{@ramdisk.mountpoint}/mysql.log"
+          }
+        end
       end
 
       # Switch to the MySQL install directory (on some platforms the install script uses relative paths)
@@ -194,7 +202,7 @@ class App
 
 
   def initialize(argv)
-    @options = OpenStruct.new(:verbose => false, :size => 1024)
+    @options = OpenStruct.new(:verbose => false, :size => 1024, :log => false)
     option_parser.parse(argv)
 
     Logger.level = options.verbose ? 
@@ -205,7 +213,7 @@ class App
 
   def main
     @ramdisk = Ramdisk.new(options.size)
-    @server = MySQLServer.new(@ramdisk)
+    @server = MySQLServer.new(@ramdisk, options.log)
     rd,wr = IO.pipe
 
     if pid = Process.fork
@@ -240,6 +248,7 @@ class App
 
     # Log and wait for user input
     Logger.info "MySQL is now running."
+    Logger.info "A query log can be found at '#{@ramdisk.mountpoint}/mysql.log'" if options.log
     Logger.info "Configure you client to use the root user, no password, and the socket at '#{@server.socket}'."
     Logger.info "Just close this terminal or press ^C when you no longer need it."
     wait_forever
@@ -271,6 +280,10 @@ class App
 
       opts.on("-s", "--size SIZE", Integer, "Size of RAM disk in MB (default 1024)") do |v|
         options.size = v
+      end
+
+      opts.on("-l", "--log", "Create mysql.log") do |v|
+        options.log = v
       end
     end
   end 
