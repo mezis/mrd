@@ -37,6 +37,7 @@ Then, if using Rails, point your `database.yml` to the temporary SQL server:
     Usage:  [options]
         -v, --verbose                    Run verbosely
         -s, --size SIZE                  Size of RAM disk in MB (default 1024)
+        -p, --port PORT                  Run MySQL listening on specified port
         -l, --log                        Create mysql.log
 
 ## Contributing
