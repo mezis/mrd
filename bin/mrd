@@ -107,12 +107,14 @@ class App
     include Runner
 
     attr :socket
+    attr :port
 
-    def initialize(ramdisk, log = false)
+    def initialize(ramdisk, log = false, port = 0)
       @ramdisk = ramdisk
       @install_db = find_command! %w(mysql_install_db5 mysql_install_db)
       @mysqld     = find_command! %w(mysqld_safe5 mysqld_safe)
       @log        = log
+      @port       = port
     end
 
     def start
@@ -121,6 +123,13 @@ class App
         fd.write %Q{
           [client]
           socket = #{socket}
+        }.gsub(/^\s+/,'')
+        if @port > 0
+          fd.write %Q{
+            port = #{port}
+          }.gsub(/^\s+/,'')
+        end
+        fd.write %Q{
           [mysqld]
           socket = #{socket}
           thread_concurrency = 4
@@ -135,6 +144,11 @@ class App
             general_log_file = "#{@ramdisk.mountpoint}/mysql.log"
           }
         end
+        if @port > 0
+          fd.write %Q{
+            port = #{port}
+          }.gsub(/^\s+/,'')
+        end
       end
 
       # Switch to the MySQL install directory (on some platforms the install script uses relative paths)
@@ -145,8 +159,14 @@ class App
 
       # Start server in another thread
       Logger.info 'Starting MySQL server'
-      @thread = Thread.new do 
-        run!("#{@mysqld} --defaults-file='#{configfile}' --socket='#{socket}' --datadir='#{@ramdisk.mountpoint}' --pid-file='#{pidfile}' --skip-networking")
+      @thread = Thread.new do
+        command = "#{@mysqld} --defaults-file='#{configfile}' --datadir='#{@ramdisk.mountpoint}' --pid-file='#{pidfile}' --socket='#{socket}'"
+        if @port > 0
+          command += " --port=#{port}"
+        else
+          command += " --skip-networking"
+        end
+        run!(command)
       end
 
       # Wait for PID file
@@ -202,7 +222,7 @@ class App
 
 
   def initialize(argv)
-    @options = OpenStruct.new(:verbose => false, :size => 1024, :log => false)
+    @options = OpenStruct.new(:verbose => false, :size => 1024, :log => false, :port => 0)
     option_parser.parse(argv)
 
     Logger.level = options.verbose ? 
@@ -213,7 +233,7 @@ class App
 
   def main
     @ramdisk = Ramdisk.new(options.size)
-    @server = MySQLServer.new(@ramdisk, options.log)
+    @server = MySQLServer.new(@ramdisk, options.log, options.port)
     rd,wr = IO.pipe
 
     if pid = Process.fork
@@ -249,6 +269,7 @@ class App
     # Log and wait for user input
     Logger.info "MySQL is now running."
     Logger.info "A query log can be found at '#{@ramdisk.mountpoint}/mysql.log'" if options.log
+    Logger.info "MySQL is listening on port '#{options.port}'" if options.port > 0
     Logger.info "Configure you client to use the root user, no password, and the socket at '#{@server.socket}'."
     Logger.info "Just close this terminal or press ^C when you no longer need it."
     wait_forever
@@ -284,6 +305,10 @@ class App
 
       opts.on("-l", "--log", "Create mysql.log") do |v|
         options.log = v
+      end
+
+      opts.on("-p", "--port PORT", Integer,  "Run MySQL listening on specified port") do |v|
+        options.port = v
       end
     end
   end 
