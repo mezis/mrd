@@ -133,7 +133,7 @@ class App
             log_output = FILE
             general_log = 1
             general_log_file = "#{@ramdisk.mountpoint}/mysql.log"
-          }
+          }.gsub(/^\s+/,'')
         end
       end
 
