@@ -5,7 +5,7 @@ PATH
       term-ansicolor
 
 GEM
-  remote: https://rubygems.org/
+  remote: http://yarp.dev/
   specs:
     rake (10.1.0)
     term-ansicolor (1.2.2)
