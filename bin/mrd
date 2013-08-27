@@ -314,7 +314,7 @@ class App
   end 
 
   def wait_forever
-    Kernel.sleep 1_000_000
+    Kernel.sleep
   end
 end
 
