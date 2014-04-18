@@ -134,7 +134,7 @@ class App
           socket = #{socket}
           thread_concurrency = 4
           innodb_data_file_path = ibdata1:10M:autoextend
-          innodb_file_per_table
+          innodb_file_per_table = OFF
           ft_min_word_len = 3
         }.gsub(/^\s+/,'')
         if @log
