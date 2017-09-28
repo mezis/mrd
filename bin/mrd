@@ -18,7 +18,7 @@ class App
       'FATAL'   => :red,
       'UNKNOWN' => :red
     }
-    
+
     def initialize(*args)
       super
       self.formatter = self.method(:custom_formatter)
@@ -40,7 +40,7 @@ class App
 
     def run(command)
       Logger.debug("Running '#{command}'")
-      return %x(#{command}).strip
+      %x(#{command}).strip
     end
 
     def run!(command)
@@ -87,9 +87,9 @@ class App
 
     def mountpoint
       @mountpoint ||= begin
-        mounts = run!("mount")
+        mounts = run!('mount')
         mounts =~ /#{@device} on (.*) \(/
-        $1 or raise RuntimeError.new("Cannot determine mountpoint")
+        $1 or raise RuntimeError.new('Cannot determine mountpoint')
         $1 != '/' or raise RuntimeError.new("Bad mountpoint '#{$1}' for #{@device}")
         Pathname.new($1)
       end
@@ -111,7 +111,7 @@ class App
 
     def initialize(ramdisk, log = false, port = 0)
       @ramdisk = ramdisk
-      @install_db = find_command! %w(mysql_install_db5 mysql_install_db)
+      @install_db = find_command! %w(mysqld5 mysqld)
       @mysqld     = find_command! %w(mysqld_safe5 mysqld_safe)
       @log        = log
       @port       = port
@@ -132,7 +132,6 @@ class App
         fd.write %Q{
           [mysqld]
           socket = #{socket}
-          thread_concurrency = 4
           innodb_data_file_path = ibdata1:10M:autoextend
           innodb_file_per_table = OFF
           ft_min_word_len = 3
@@ -154,34 +153,33 @@ class App
       # Switch to the MySQL install directory (on some platforms the install script uses relative paths)
       Dir.chdir @install_db.parent.parent
 
+      data_dir = @ramdisk.mountpoint.join('data')
+
       # Setup base databases
-      run!("#{@install_db} --datadir='#{@ramdisk.mountpoint}'")
+      run!("#{@install_db} --initialize-insecure --datadir='#{data_dir}'")
 
       # Start server in another thread
       Logger.info 'Starting MySQL server'
       @thread = Thread.new do
-        command = "#{@mysqld} --defaults-file='#{configfile}' --datadir='#{@ramdisk.mountpoint}' --pid-file='#{pidfile}' --socket='#{socket}'"
-        if @port > 0
-          command += " --port=#{port}"
-        else
-          command += " --skip-networking"
-        end
+        command = "#{@mysqld} --defaults-file='#{configfile}' --datadir='#{data_dir}' --pid-file='#{pidfile}' --socket='#{socket}'"
+        command += @port > 0 ? " --port=#{port}" : ' --skip-networking'
+
         run!(command)
       end
 
       # Wait for PID file
-      wait_for { Logger.debug "Waiting for PID file..." ; pidfile.exist? }
+      wait_for { Logger.debug 'Waiting for PID file...' ; pidfile.exist? }
       self
     end
 
     def stop
       return unless pidfile && pidfile.exist?
       # Terminate server
-      Logger.info "Stopping server..."
+      Logger.info 'Stopping server...'
       pid = pidfile.read.to_i
-      Process.kill("TERM", pid)
+      Process.kill('TERM', pid)
       Logger.debug "Killed server process (#{pid})."
-      wait_for { Logger.debug "Waiting for PID file..." ; !pidfile.exist? }
+      wait_for { Logger.debug 'Waiting for PID file...' ; !pidfile.exist? }
     end
 
     def socket
@@ -235,8 +233,9 @@ class App
     @ramdisk = Ramdisk.new(options.size)
     @server = MySQLServer.new(@ramdisk, options.log, options.port)
     rd,wr = IO.pipe
+    pid = Process.fork
 
-    if pid = Process.fork
+    if pid
       wr.close
       @pipe = rd
       parent_main(pid)
@@ -261,17 +260,17 @@ class App
   # Logger.info 'in child'
     @ramdisk.mount
     @server.start
-    Signal.trap("HUP") do 
-      Logger.warn "SIGHUP received"
+    Signal.trap('HUP') do
+      Logger.warn 'SIGHUP received'
       cleanup
     end
 
     # Log and wait for user input
-    Logger.info "MySQL is now running."
+    Logger.info 'MySQL is now running.'
     Logger.info "A query log can be found at '#{@ramdisk.mountpoint}/mysql.log'" if options.log
     Logger.info "MySQL is listening on port '#{options.port}'" if options.port > 0
     Logger.info "Configure you client to use the root user, no password, and the socket at '#{@server.socket}'."
-    Logger.info "Just close this terminal or press ^C when you no longer need it."
+    Logger.info 'Just close this terminal or press ^C when you no longer need it.'
     wait_forever
 
   rescue Interrupt, SystemExit
@@ -295,19 +294,19 @@ class App
     OptionParser.new do |opts|
       opts.banner = "Usage: #{$progname} [options]"
 
-      opts.on("-v", "--verbose", "Run verbosely") do |v|
+      opts.on('-v', '--verbose', 'Run verbosely') do |v|
         options.verbose = true
       end
 
-      opts.on("-s", "--size SIZE", Integer, "Size of RAM disk in MB (default 1024)") do |v|
+      opts.on('-s', '--size SIZE', Integer, 'Size of RAM disk in MB (default 1024)') do |v|
         options.size = v
       end
 
-      opts.on("-l", "--log", "Create mysql.log") do |v|
+      opts.on('-l', '--log', 'Create mysql.log') do |v|
         options.log = v
       end
 
-      opts.on("-p", "--port PORT", Integer,  "Run MySQL listening on specified port") do |v|
+      opts.on('-p', '--port PORT', Integer,  'Run MySQL listening on specified port') do |v|
         options.port = v
       end
     end
@@ -317,6 +316,5 @@ class App
     Kernel.sleep
   end
 end
-
 
 App.new(ARGV).main
