@@ -9,9 +9,20 @@ Spawns a temporary MySQL instance off a RAM disk. Useful to speed up large test 
 
 Only works under Mac OS X.
 
+## Requirements
+
+* MySQL >= 5.7.0 (see below for installation with MySQL < 5.7.0)
+* mysql2 >= 0.4.0, >= 0.3.17, >= 0.2.24 (any other version for MySQL < 5.7.0)
+
 ## Installation
 
+To install the MySQL 5.7.x compatible version of mrd with its default setup, just use:
+
     $ gem install mrd
+    
+To use the version of mrd for MySQL 5.6 and below, use:
+
+    $ gem install mrd -v 0.0.7
 
 ## Usage
 
